@@ -3,27 +3,69 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sudoku Game with Phaser</title>
+  <title>Responsive Sudoku Game with Phaser</title>
   <script src="https://cdn.jsdelivr.net/npm/phaser@3/dist/phaser.min.js"></script>
   <style>
     body {
       margin: 0;
       background: #f7f7f7;
     }
+    #game-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 100vw;
+      height: 100vh;
+    }
     canvas {
-      display: block;
-      margin: auto;
+      max-width: 100vw;
+      max-height: 80vh;
+    }
+    .number-pad, .controls {
+      display: grid;
+      gap: 5px;
+      margin-top: 10px;
+      width: 90vw;
+    }
+    .number-pad {
+      grid-template-columns: repeat(9, 1fr);
+    }
+    .controls {
+      grid-template-columns: repeat(4, 1fr);
+      margin-top: 5px;
+    }
+    button {
+      font-size: 1.2rem;
+      padding: 10px;
+      border: none;
+      border-radius: 4px;
+      background-color: #ddd;
     }
   </style>
 </head>
 <body>
+<div id="game-container">
+  <div id="sudoku-container"></div>
+  <div class="number-pad" id="number-pad"></div>
+  <div class="controls">
+    <button onclick="checkSolution()">Check</button>
+    <button onclick="showHint()">Hint</button>
+    <button onclick="newGame('easy')">Easy</button>
+    <button onclick="newGame('hard')">Hard</button>
+  </div>
+</div>
 <script>
   const config = {
     type: Phaser.AUTO,
-    width: 540,
-    height: 540,
+    scale: {
+      mode: Phaser.Scale.FIT,
+      autoCenter: Phaser.Scale.CENTER_BOTH,
+      parent: 'sudoku-container',
+      width: 540,
+      height: 540,
+    },
     backgroundColor: '#ffffff',
-    parent: 'sudoku-container',
     scene: {
       preload,
       create
@@ -32,14 +74,78 @@
 
   const game = new Phaser.Game(config);
   const gridSize = 60;
-  let grid = [];
+  let grid = [], selectedCell = null, puzzle = [], solution = [], difficulty = 'easy';
+
+  function generatePuzzle(diff = 'easy') {
+    const base = [...Array(9).keys()].map(i => (i + 1));
+
+    function shuffle(array) {
+      for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+      }
+      return array;
+    }
+
+    function fillGrid() {
+      const board = Array.from({ length: 9 }, () => Array(9).fill(''));
+
+      function isValid(board, row, col, num) {
+        for (let i = 0; i < 9; i++) {
+          if (board[row][i] == num || board[i][col] == num ||
+                  board[3 * Math.floor(row / 3) + Math.floor(i / 3)]
+                          [3 * Math.floor(col / 3) + i % 3] == num) return false;
+        }
+        return true;
+      }
+
+      function solve(index = 0) {
+        if (index === 81) return true;
+        const row = Math.floor(index / 9);
+        const col = index % 9;
+        const nums = shuffle([...base]);
+
+        for (let num of nums) {
+          if (isValid(board, row, col, num)) {
+            board[row][col] = num;
+            if (solve(index + 1)) return true;
+            board[row][col] = '';
+          }
+        }
+        return false;
+      }
+
+      solve();
+      return board;
+    }
+
+    function removeCells(board, attempts) {
+      const puzzle = board.map(row => row.slice());
+      while (attempts > 0) {
+        const row = Math.floor(Math.random() * 9);
+        const col = Math.floor(Math.random() * 9);
+        if (puzzle[row][col] !== '') {
+          puzzle[row][col] = '';
+          attempts--;
+        }
+      }
+      return puzzle;
+    }
+
+    solution = fillGrid();
+    const removeCount = diff === 'hard' ? 55 : 35;
+    return removeCells(solution, removeCount);
+  }
 
   function preload() {}
 
   function create() {
     const graphics = this.add.graphics();
+    const puzzle = generatePuzzle();
 
-    // Draw Sudoku grid
+    let selectionRect = this.add.rectangle(0, 0, gridSize, gridSize, 0x0000ff, 0.2);
+    selectionRect.setOrigin(0).setVisible(false);
+
     for (let row = 0; row < 9; row++) {
       grid[row] = [];
       for (let col = 0; col < 9; col++) {
@@ -49,35 +155,127 @@
         graphics.lineStyle(1, 0xcccccc);
         graphics.strokeRect(x, y, gridSize, gridSize);
 
-        // Thicker border every 3x3 block
-        if (col % 3 === 0) {
-          graphics.lineStyle(3, 0x333333);
-          graphics.strokeRect(x, y, gridSize, gridSize);
-        }
+        if (col % 3 === 0) graphics.lineStyle(3, 0x333333);
+        if (row % 3 === 0 && col === 0) graphics.lineStyle(3, 0x333333);
+        graphics.strokeRect(x, y, gridSize, gridSize);
 
-        if (row % 3 === 0 && col === 0) {
-          graphics.lineStyle(3, 0x333333);
-          graphics.strokeRect(0, y, 540, gridSize);
-        }
+        let value = puzzle[row][col] ? puzzle[row][col].toString() : '';
 
-        // Create input field (as text object placeholder)
-        let cellValue = this.add.text(x + gridSize / 2, y + gridSize / 2, '', {
+        let cell = this.add.text(x + gridSize / 2, y + gridSize / 2, value, {
           fontSize: '24px',
-          color: '#000000'
+          color: value ? '#000' : '#0077cc',
+          fontStyle: value ? 'bold' : 'normal',
         }).setOrigin(0.5).setInteractive();
 
-        cellValue.on('pointerdown', () => {
-          let input = prompt("Enter a number (1-9):");
-          if (/^[1-9]$/.test(input)) {
-            cellValue.setText(input);
-          } else {
-            alert("Only numbers 1-9 are allowed");
-          }
-        });
+        if (!value) {
+          cell.on('pointerdown', () => {
+            selectedCell = cell;
+            selectionRect.setPosition(col * gridSize, row * gridSize);
+            selectionRect.setVisible(true);
+          });
+        }
 
-        grid[row][col] = cellValue;
+        grid[row][col] = cell;
       }
     }
+
+    createNumberPad();
+  }
+
+
+  function drawBoard() {
+    this.children.removeAll();
+    const graphics = this.add.graphics();
+    puzzle = generatePuzzle(difficulty);
+    let scene = this;
+
+    let selectionRect = this.add.rectangle(0, 0, gridSize, gridSize, 0x0000ff, 0.3);
+    selectionRect.setOrigin(0).setVisible(false);
+
+    for (let row = 0; row < 9; row++) {
+      grid[row] = [];
+      for (let col = 0; col < 9; col++) {
+        let x = col * gridSize;
+        let y = row * gridSize;
+
+        graphics.lineStyle(1, 0xcccccc);
+        graphics.strokeRect(x, y, gridSize, gridSize);
+        if (col % 3 === 0) graphics.lineStyle(3, 0x333333);
+        if (row % 3 === 0 && col === 0) graphics.lineStyle(3, 0x333333);
+        graphics.strokeRect(x, y, gridSize, gridSize);
+
+        let value = puzzle[row][col] ? puzzle[row][col].toString() : '';
+        let cell = scene.add.text(x + gridSize / 2, y + gridSize / 2, value, {
+          fontSize: '24px',
+          color: value ? '#000' : '#0077cc',
+          fontStyle: value ? 'bold' : 'normal'
+        }).setOrigin(0.5).setInteractive();
+
+        cell.row = row;
+        cell.col = col;
+        grid[row][col] = cell;
+
+        if (!value) {
+          cell.on('pointerdown', () => {
+            selectedCell = cell;
+            selectionRect.setPosition(col * gridSize, row * gridSize);
+            selectionRect.setVisible(true);
+          });
+        }
+      }
+    }
+
+    // Save selectionRect reference so other functions can reuse it if needed
+    this.selectionRect = selectionRect;
+  }
+
+
+  function createNumberPad() {
+    const pad = document.getElementById('number-pad');
+    pad.innerHTML = '';
+    for (let i = 1; i <= 9; i++) {
+      const btn = document.createElement('button');
+      btn.textContent = i;
+      btn.addEventListener('click', () => {
+        if (selectedCell) {
+          selectedCell.setText(i.toString());
+          selectedCell.setColor('#0077cc');
+        }
+      });
+      pad.appendChild(btn);
+    }
+  }
+
+
+  function checkSolution() {
+    for (let row = 0; row < 9; row++) {
+      for (let col = 0; col < 9; col++) {
+        const cell = grid[row][col];
+        if (parseInt(cell.text) !== solution[row][col]) {
+          cell.setColor('#ff0000');
+        } else {
+          cell.setColor('#00aa00');
+        }
+      }
+    }
+  }
+
+  function showHint() {
+    for (let row = 0; row < 9; row++) {
+      for (let col = 0; col < 9; col++) {
+        const cell = grid[row][col];
+        if (!cell.text) {
+          cell.setText(solution[row][col]);
+          cell.setColor('#0000ff');
+          return;
+        }
+      }
+    }
+  }
+
+  function newGame(diff) {
+    difficulty = diff;
+    game.scene.scenes[0].scene.restart();
   }
 </script>
 </body>
